@@ -28,7 +28,7 @@ where pwsh >nul 2>&1 || set "PSH=powershell"
 
 :: Resolve current script directory to absolute path, locate ps1 in same dir
 set "THIS_DIR=%~dp0"
-set "PS1=%THIS_DIR%uhdr2tiff-heic.ps1"
+set "PS1=%THIS_DIR%uhdr2tiff-aaplheic.ps1"
 
 if not exist "%PS1%" (
   echo [ERROR] PowerShell script not found: %PS1%
