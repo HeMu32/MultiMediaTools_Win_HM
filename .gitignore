@@ -1,0 +1,13 @@
+# Ignore everything
+*
+
+# Un-ignore the Bin directory so git will look inside it
+!/Bin/
+
+# Ignore everything inside the Bin directory
+/Bin/*
+
+# But not these files
+!/Bin/*.ps1
+!/Bin/*.cmd
+!.gitignore
