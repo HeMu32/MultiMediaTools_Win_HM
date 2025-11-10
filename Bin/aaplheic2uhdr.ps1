@@ -63,7 +63,7 @@ if ($outDir -and -not (Test-Path $outDir)) {
 $scriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 $metadataScript = Join-Path $scriptDir 'extract_apple_hdr_metadata.ps1'
 if (-not (Test-Path $metadataScript)) {
-  throw "Required script 'extract_apple_hdr_metadata.ps1' not found next to hdrheif2uhdr.ps1."
+  throw "Required script 'extract_apple_hdr_metadata.ps1' not found next to aaplheic2uhdr.ps1."
 }
 
 Test-Tool -Name 'heif-dec.exe'

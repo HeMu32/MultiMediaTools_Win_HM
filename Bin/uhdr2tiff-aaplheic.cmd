@@ -1,11 +1,11 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: uhdr2tiff-heic.cmd - Call PowerShell script uhdr2tiff-heic.ps1 from cmd.exe
+:: uhdr2tiff-aaplheic.cmd - Call PowerShell script uhdr2tiff-heic.ps1 from cmd.exe
 :: Usage:
-::   uhdr2tiff-heic.cmd <InputPath> <OutputPath> [pq|hlg] [8|16]
+::   uhdr2tiff-aaplheic.cmd <InputPath> <OutputPath> [pq|hlg] [8|16]
 :: Example:
-::   uhdr2tiff-heic.cmd IMG_5763.HEIC out_pq_16b.tiff pq 16
+::   uhdr2tiff-aaplheic.cmd IMG_5763.HEIC out_pq_16b.tiff pq 16
 
 if "%~1"=="" goto :help
 if /I "%~1"=="/?" goto :help

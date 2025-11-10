@@ -1,11 +1,11 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: hdrheif2uhdr.cmd - Call PowerShell script hdrheif2uhdr.ps1 from cmd.exe
+:: aaplheic2uhdr.cmd - Call PowerShell script aaplheic2uhdr.ps1 from cmd.exe
 :: Usage:
-::   hdrheif2uhdr.cmd <InputHeic> <OutputJpeg>
+::   aaplheic2uhdr.cmd <InputHeic> <OutputJpeg>
 :: Example:
-::   hdrheif2uhdr.cmd IMG_5763.HEIC output_hdr.jpg
+::   aaplheic2uhdr.cmd IMG_5763.HEIC output_hdr.jpg
 
 if "%~1"=="" goto :help
 if /I "%~1"=="/?" goto :help
@@ -26,7 +26,7 @@ where pwsh >nul 2>&1 || set "PSH=powershell"
 
 :: Resolve current script directory to absolute path, locate ps1 in same dir
 set "THIS_DIR=%~dp0"
-set "PS1=%THIS_DIR%hdrheif2uhdr.ps1"
+set "PS1=%THIS_DIR%aaplheic2uhdr.ps1"
 
 if not exist "%PS1%" (
   echo [ERROR] PowerShell script not found: %PS1%
