@@ -130,6 +130,16 @@ try {
   # Copy EXIF from input HEIC to output JPEG
   Write-Host "> copying EXIF metadata"
   Invoke-External -File 'exiftool' -Args @('-TagsFromFile', $resolvedInput.Path, '-all:all', '-overwrite_original', $outputFull)
+
+  # Explicitly copy ICC_Profile (profile 0) from source HEIC to the output JPEG.
+  # Many HEICs may contain multiple ICC_Profile tags; we assume the primary 'ICC_Profile' is the desired Display P3 profile.
+  Write-Host "> explicitly copying ICC_Profile (profile 0)"
+  try {
+    Invoke-External -File 'exiftool' -Args @('-TagsFromFile', $resolvedInput.Path, '-ICC_Profile', '-overwrite_original', $outputFull)
+    Write-Host "ICC_Profile copied successfully."
+  } catch {
+    Write-Warning "Failed to copy ICC_Profile: $_"
+  }
 }
 finally {
   if (Test-Path $tempDir) {
