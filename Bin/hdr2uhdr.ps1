@@ -145,6 +145,7 @@ try {
     '-t', $tf,
     '-a', '5', # rgba1010102 for x2bgr10le
     '-z', $OutputPath
+	'-L', '1000' #debug
   )
   Invoke-External -File 'ultrahdr_app.exe' -Args $uhdrArgs
 
@@ -152,7 +153,8 @@ try {
   
   # 6) (Optional) Copy EXIF
   Write-Host "> Copying EXIF metadata..."
-  Invoke-External -File 'exiftool' -Args @('-TagsFromFile', $InputPath, '-all:all', '-overwrite_original', $OutputPath)
+  # Copy only EXIF and XMP to avoid overwriting UltraHDR-specific metadata or color profiles
+  Invoke-External -File 'exiftool' -Args @('-TagsFromFile', $InputPath, '-exif:all', '-xmp:all', '-overwrite_original', $OutputPath)
 
 }
 finally {
