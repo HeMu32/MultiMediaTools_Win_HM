@@ -66,7 +66,7 @@ function Get-HdrInfo {
     throw "Could not determine image dimensions from exiftool output."
   }
 
-  $hdrFormat = 'pq' # Default
+  $hdrFormat = 'hlg' # Default
   if ($transfer -match 'hlg' -or $transfer -match 'arib-std-b67') {
     $hdrFormat = 'hlg'
   }
@@ -74,7 +74,7 @@ function Get-HdrInfo {
     $hdrFormat = 'pq'
   }
   else {
-    Write-Warning "Could not determine HDR transfer function. Defaulting to PQ. Found: '$transfer'"
+    Write-Warning "Could not determine HDR transfer function. Defaulting to HLG. Found: '$transfer'"
   }
 
   return [pscustomobject]@{
@@ -145,7 +145,6 @@ try {
     '-t', $tf,
     '-a', '5', # rgba1010102 for x2bgr10le
     '-z', $OutputPath
-	'-L', '1000' #debug
   )
   Invoke-External -File 'ultrahdr_app.exe' -Args $uhdrArgs
 
