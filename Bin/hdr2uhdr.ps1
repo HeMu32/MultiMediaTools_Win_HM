@@ -251,6 +251,28 @@ try {
       $outputFull
   )
 
+  # 7) append Google-style hdrgm/GContainer XMP so that consumers can
+  #    locate the MPImage2 payload.  padding field set to zero by
+  #    default to match addXmpGContainer.md examples.
+  # append Google-style hdrgm/GContainer XMP so that consumers can
+  # locate the MPImage2 payload. padding field set to zero by default.
+  $mpLen = (& exiftool -s -s -s -MPImage2:MPImageLength $outputFull)
+  if ($mpLen) {
+      Invoke-External -File 'exiftool' -Args @(
+          '-overwrite_original',
+          '-XMP-hdrgm:Version=1.0',
+          '-XMP-GContainer:DirectoryItemMime+=image/jpeg',
+          '-XMP-GContainer:DirectoryItemSemantic+=Primary',
+          '-XMP-GContainer:DirectoryItemSemantic+=GainMap',
+          '-XMP-GContainer:DirectoryItemLength+=0',
+          "-XMP-GContainer:DirectoryItemLength+=$mpLen",
+          '-XMP-GContainer:DirectoryItemPadding+=0',
+          $outputFull
+      )
+  } else {
+      Write-Warning "MPImage2 length not found; skipping Google XMP."
+  }
+
 }
 finally {
   if ($tempDir -and (Test-Path $tempDir)) {

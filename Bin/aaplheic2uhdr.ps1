@@ -155,15 +155,91 @@ try {
   # Only copy the standard EXIF and XMP groups plus ICC profile.  Apple devices
   # can be sensitive to extraneous maker notes or proprietary tags, so we avoid
   # pulling over unrelated fields.
-  Invoke-External -File 'exiftool' -Args @(
-      '-TagsFromFile', $resolvedInput.Path,
-      '-exif:all',
-      '-xmp:all',
-      '-icc_profile',
-      '-overwrite_original',
-      $outputFull
-  )
+    # Copy EXIF (all) and a curated set of common XMP groups to avoid
+    # bringing Apple-private XMP namespaces (e.g. XMP-HDRGainMap / XMP-apdi).
+    # Whitelist copy: select common EXIF, GPS, IPTC and safe XMP groups so
+    # we preserve useful photographic metadata (exposure, ISO, focal length,
+    # lens, creation dates, GPS, IPTC captions/keywords, XMP-dc/xmpMM provenance)
+    # while avoiding Apple-private XMP namespaces (e.g. XMP-apdi / XMP-HDRGainMap).
+    Invoke-External -File 'exiftool' -Args @(
+        '-TagsFromFile', $resolvedInput.Path,
+        # Core timestamps & camera identification
+        '-EXIF:DateTimeOriginal',
+        '-EXIF:CreateDate',
+        '-EXIF:ModifyDate',
+        '-EXIF:SubSecTimeOriginal',
+        '-EXIF:SubSecTimeDigitized',
+        '-EXIF:Make',
+        '-EXIF:Model',
+        '-EXIF:Orientation',
+        # Exposure / capture parameters (comprehensive set)
+        '-EXIF:ExposureTime',
+        '-EXIF:FNumber',
+        '-EXIF:ExposureProgram',
+        '-EXIF:ExposureCompensation',
+        '-EXIF:ExposureBiasValue',
+        '-EXIF:ShutterSpeedValue',
+        '-EXIF:ApertureValue',
+        '-EXIF:MaxApertureValue',
+        '-EXIF:ISOSpeedRatings',
+        '-EXIF:PhotographicSensitivity',
+        '-EXIF:ExposureIndex',
+        '-EXIF:MeteringMode',
+        '-EXIF:Flash',
+        '-EXIF:WhiteBalance',
+        '-EXIF:ExposureMode',
+        '-EXIF:CustomRendered',
+        '-EXIF:GainControl',
+        '-EXIF:Contrast',
+        '-EXIF:Saturation',
+        '-EXIF:Sharpness',
+        # Focal length / lens (including 35mm equiv and lens details)
+        '-EXIF:FocalLength',
+        '-EXIF:FocalLengthIn35mmFormat',
+        '-EXIF:LensModel',
+        '-EXIF:LensMake',
+        '-EXIF:LensInfo',
+        '-EXIF:LensSpecification',
+        '-EXIF:SubjectArea',
+        '-EXIF:SceneType',
+        '-EXIF:ColorSpace',
+        # GPS, IPTC (preserve common location and editorial metadata)
+        '-GPS:All',
+        '-IPTC:All',
+        # XMP groups: keep common, non-proprietary groups (dc, xmpMM, photoshop, exif)
+        '-XMP-dc:All',
+        '-XMP-xmpMM:All',
+        '-XMP-photoshop:All',
+        '-XMP-iptcCore:All',
+        '-XMP-exif:All',
+        '-XMP-xmp:All',
+        '-XMP-aux:All',
+        # Preserve ICC profile if present (remove this entry if you don't want ICC copied)
+        '-ICC_Profile:All',
+        # finalize
+        '-overwrite_original',
+        $outputFull
+    )
 
+
+  # append Google-style hdrgm/GContainer XMP metadata (padding=0)
+  Write-Host "> appending Google hdrgm/GContainer XMP metadata"
+  $mpLen = (& exiftool -s -s -s -MPImage2:MPImageLength $outputFull)
+  if ($mpLen) {
+      Invoke-External -File 'exiftool' -Args @(
+          '-overwrite_original',
+          '-XMP-hdrgm:Version=1.0',
+          '-XMP-GContainer:DirectoryItemMime+=image/jpeg',
+          '-XMP-GContainer:DirectoryItemSemantic+=Primary',
+          '-XMP-GContainer:DirectoryItemSemantic+=GainMap',
+          '-XMP-GContainer:DirectoryItemLength+=0',
+          "-XMP-GContainer:DirectoryItemLength+=$mpLen",
+          '-XMP-GContainer:DirectoryItemPadding+=0',
+          $outputFull
+      )
+  } else {
+      Write-Warning "MPImage2 length not found; skipping Google XMP."
+  }
 
 }
 finally {

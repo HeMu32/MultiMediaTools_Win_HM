@@ -1,6 +1,6 @@
 <#!
 .SYNOPSIS
-  处理 iPhone HDR HEIC，生成指定传输函数与位深的 TIFF。
+  处理 Apple HDR HEIC，将其变为 BT.2020 TIFF（通过中间 UltraHDR JPEG）。
 
 .DESCRIPTION
   工作流程：
@@ -69,11 +69,11 @@ $scriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
 
 $heicToUhdr = Join-Path $scriptDir 'aaplheic2uhdr.ps1'
 if (-not (Test-Path $heicToUhdr)) {
-  throw "Required script 'aaplheic2uhdr.ps1' not found next to uhdr2tiff-aaplheic.ps1."
+  throw "Required script 'aaplheic2uhdr.ps1' not found next to aaplheic2tiff.ps1."
 }
 $uhdrToTiff = Join-Path $scriptDir 'uhdr2tiff.ps1'
 if (-not (Test-Path $uhdrToTiff)) {
-  throw "Required script 'uhdr2tiff.ps1' not found next to uhdr2tiff-aaplheic.ps1."
+  throw "Required script 'uhdr2tiff.ps1' not found next to aaplheic2tiff.ps1."
 }
 
 if (-not (Get-Command 'exiftool' -ErrorAction SilentlyContinue)) {

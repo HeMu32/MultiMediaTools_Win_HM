@@ -1,7 +1,7 @@
 # Ignore everything
 *
 
-!readme.md
+!*.md
 !readme.txt
 
 # Un-ignore the Bin directory so git will look inside it

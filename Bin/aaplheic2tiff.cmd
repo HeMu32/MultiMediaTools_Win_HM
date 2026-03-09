@@ -1,9 +1,9 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: uhdr2tiff-aaplheic.cmd - Call PowerShell script uhdr2tiff-aaplheic.ps1 from cmd.exe
+:: aaplheic2tiff.cmd - Call PowerShell script aaplheic2tiff.ps1 from cmd.exe
 :: Usage:
-::   uhdr2tiff-aaplheic.cmd <InputPath> <OutputPath> [pq|hlg] [8|16]
+::   aaplheic2tiff.cmd <InputPath> <OutputPath> [pq|hlg] [8|16]
 ::
 :: This wrapper invokes a two-stage pipeline:
 ::   1) convert HEIC ➜ UltraHDR JPEG with aaplheic2uhdr.ps1
@@ -11,7 +11,7 @@ setlocal enabledelayedexpansion
 :: The PS1 code handles output directory creation and metadata copying.
 ::
 :: Example:
-::   uhdr2tiff-aaplheic.cmd IMG_5763.HEIC out_hlg_16b.tiff hlg 16
+::   aaplheic2tiff.cmd IMG_5763.HEIC out_hlg_16b.tiff hlg 16
 
 if "%~1"=="" goto :help
 if /I "%~1"=="/?" goto :help
@@ -34,7 +34,7 @@ where pwsh >nul 2>&1 || set "PSH=powershell"
 
 :: Resolve current script directory to absolute path, locate ps1 in same dir
 set "THIS_DIR=%~dp0"
-set "PS1=%THIS_DIR%uhdr2tiff-aaplheic.ps1"
+set "PS1=%THIS_DIR%aaplheic2tiff.ps1"
 
 if not exist "%PS1%" (
   echo [ERROR] PowerShell script not found: %PS1%

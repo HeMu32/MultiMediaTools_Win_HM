@@ -205,6 +205,16 @@ try {
       '-overwrite_original',
       $OutputPath
   )
+
+  # remove any Google hdrgm/GContainer entries so the TIFF is free of
+  # UHDR-specific XMP (some viewers misinterpret it)
+  Write-Host "> stripping Google XMP from TIFF"
+  Invoke-External -File 'exiftool' -Args @(
+      '-overwrite_original',
+      '-XMP-hdrgm:All=',
+      '-XMP-GContainer:All=',
+      $OutputPath
+  )
 }
 finally {
   if ($tmpRaw -and (Test-Path $tmpRaw)) {
