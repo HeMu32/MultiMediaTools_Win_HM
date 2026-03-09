@@ -1,11 +1,17 @@
 @echo off
 setlocal enabledelayedexpansion
 
-:: uhdr2tiff-aaplheic.cmd - Call PowerShell script uhdr2tiff-heic.ps1 from cmd.exe
+:: uhdr2tiff-aaplheic.cmd - Call PowerShell script uhdr2tiff-aaplheic.ps1 from cmd.exe
 :: Usage:
 ::   uhdr2tiff-aaplheic.cmd <InputPath> <OutputPath> [pq|hlg] [8|16]
+::
+:: This wrapper invokes a two-stage pipeline:
+::   1) convert HEIC ➜ UltraHDR JPEG with aaplheic2uhdr.ps1
+::   2) decode that JPEG ➜ BT.2020 TIFF via uhdr2tiff.ps1
+:: The PS1 code handles output directory creation and metadata copying.
+::
 :: Example:
-::   uhdr2tiff-aaplheic.cmd IMG_5763.HEIC out_pq_16b.tiff pq 16
+::   uhdr2tiff-aaplheic.cmd IMG_5763.HEIC out_hlg_16b.tiff hlg 16
 
 if "%~1"=="" goto :help
 if /I "%~1"=="/?" goto :help
@@ -35,8 +41,8 @@ if not exist "%PS1%" (
   exit /b 2
 )
 
-:: Default values: Transfer defaults to pq, BitDepth to 16
-if "%TRANSFER%"=="" set "TRANSFER=pq"
+:: Default values: Transfer defaults to hlg, BitDepth to 16
+if "%TRANSFER%"=="" set "TRANSFER=hlg"
 if "%BITDEPTH%"=="" set "BITDEPTH=16"
 
 :: Call PowerShell script, bypass execution policy, pass parameters
@@ -57,9 +63,9 @@ echo   %~nx0 ^<InputPath^> ^<OutputPath^> [pq^|hlg] [8^|16]
 echo Parameters:
 echo   InputPath   Apple HDR HEIC input file (.heic)
 echo   OutputPath  Output TIFF file path
-echo   pq^|hlg     Target transfer function (default pq)
+echo   hlg^|pq     Target transfer function (default hlg)
 echo   8^|16       TIFF bit depth (default 16)
 echo.
 echo Example:
-echo   %~nx0 IMG_5763.HEIC out_pq_16b.tiff pq 16
+echo   %~nx0 IMG_5763.HEIC out_hlg_16b.tiff hlg 16
 exit /b 1

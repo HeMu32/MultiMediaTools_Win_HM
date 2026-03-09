@@ -5,8 +5,9 @@
 .DESCRIPTION
   工作流程：
     1. 调用 aaplheic2uhdr.ps1 将 HEIC 转换为 UltraHDR JPEG（临时文件）。
-    2. 使用 ultrahdr_app.exe 解码 UltraHDR JPEG 为 10bit RGBA1010102 raw。
-    3. 通过 ffmpeg 将 raw 封装为 TIFF（支持 HLG/PQ 与 8/16bit）。
+    2. 调用 uhdr2tiff.ps1 完成 UltraHDR JPEG -> TIFF 的全部工作
+       （包括 ultrahdr_app 解码、ICC 色域检测、zscale 色域转换、ffmpeg 封装）。
+    3. 用原始 HEIC 的 EXIF 覆盖 TIFF 中由 uhdr2tiff.ps1 写入的中间 JPEG EXIF。
 
 .PARAMETER InputPath
   Apple HDR HEIC 输入路径。
@@ -15,13 +16,13 @@
   输出 TIFF 路径。
 
 .PARAMETER Transfer
-  输出传输函数：'pq' 或 'hlg'（默认 'pq'）。
+  输出传输函数：'hlg' 或 'pq'（默认 'hlg'）。
 
 .PARAMETER BitDepth
   输出 TIFF 位深：8 或 16（默认 16）。
 
 .REQUIREMENTS
-  需存在工具：aaplheic2uhdr.ps1、ultrahdr_app.exe、ffprobe、ffmpeg。
+  需存在脚本：aaplheic2uhdr.ps1、uhdr2tiff.ps1（同目录）。
   aaplheic2uhdr.ps1 依赖 heif-dec.exe 与 extract_apple_hdr_metadata.ps1。
 #>
 
@@ -37,7 +38,7 @@ param(
 
   [Parameter(Position = 2)]
   [ValidateSet('pq','hlg')]
-  [string]$Transfer = 'pq',
+  [string]$Transfer = 'hlg',
 
   [Parameter(Position = 3)]
   [ValidateSet(8,16)]
@@ -45,33 +46,6 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-
-function Test-Tool {
-  param([Parameter(Mandatory=$true)][string]$Name)
-  if (-not (Get-Command $Name -ErrorAction SilentlyContinue)) {
-    throw "Command '$Name' not found, ensure it is installed and in PATH."
-  }
-}
-
-function Get-ImageSize {
-  param([Parameter(Mandatory=$true)][string]$Path)
-  $ffprobeArgs = @(
-    '-hide_banner',
-    '-v','error',
-    '-select_streams','v:0',
-    '-show_entries','stream=width,height',
-    '-of','csv=s=,:p=0',
-    $Path
-  )
-  $out = & ffprobe @ffprobeArgs 2>$null | Select-Object -First 1
-  if (-not $out) { throw "Unable to parse resolution from '$Path' (ffprobe no output)." }
-  $parts = $out -split ','
-  if ($parts.Count -lt 2) { throw "Unable to parse resolution from '$Path' (unexpected output: $out)" }
-  $width  = [int]$parts[0]
-  $height = [int]$parts[1]
-  if ($width -le 0 -or $height -le 0) { throw "Parsed width/height invalid: $width x $height" }
-  [pscustomobject]@{ Width = $width; Height = $height }
-}
 
 function Invoke-External {
   param(
@@ -92,76 +66,53 @@ if ($outDir -and -not (Test-Path $outDir)) {
 }
 
 $scriptDir = Split-Path -Path $MyInvocation.MyCommand.Definition -Parent
+
 $heicToUhdr = Join-Path $scriptDir 'aaplheic2uhdr.ps1'
 if (-not (Test-Path $heicToUhdr)) {
   throw "Required script 'aaplheic2uhdr.ps1' not found next to uhdr2tiff-aaplheic.ps1."
 }
+$uhdrToTiff = Join-Path $scriptDir 'uhdr2tiff.ps1'
+if (-not (Test-Path $uhdrToTiff)) {
+  throw "Required script 'uhdr2tiff.ps1' not found next to uhdr2tiff-aaplheic.ps1."
+}
 
-Test-Tool -Name 'ultrahdr_app.exe'
-Test-Tool -Name 'ffprobe'
-Test-Tool -Name 'ffmpeg'
-Test-Tool -Name 'exiftool'
+if (-not (Get-Command 'exiftool' -ErrorAction SilentlyContinue)) {
+  throw "Command 'exiftool' not found, ensure it is installed and in PATH."
+}
 
 $tempDir = Join-Path ([IO.Path]::GetTempPath()) ("uhdr2tiff_heic_" + [Guid]::NewGuid().ToString('N'))
 New-Item -ItemType Directory -Path $tempDir | Out-Null
 Write-Host "Using temp dir: $tempDir"
 
 $uhdrJpeg = Join-Path $tempDir 'intermediate_uhdr.jpg'
-$rawPath  = Join-Path $tempDir 'decoded_rgba1010102.raw'
 
 try {
+  # stage 1: HEIC -> UltraHDR JPEG
   Write-Host "> stage1: heic -> ultrahdr jpeg"
   & $heicToUhdr -InputHeic $resolvedInput.Path -OutputJpeg $uhdrJpeg
   if (-not (Test-Path $uhdrJpeg)) {
     throw "Failed to generate UltraHDR JPEG at '$uhdrJpeg'."
   }
 
-  $size = Get-ImageSize -Path $uhdrJpeg
-  $w = $size.Width
-  $h = $size.Height
-  Write-Host "Detected resolution: $w x $h"
+  # stage 2+3: UltraHDR JPEG -> TIFF（委托给 uhdr2tiff.ps1，含解码、ICC 检测、色域转换、ffmpeg 封装）
+  Write-Host "> stage2+3: ultrahdr jpeg -> tiff (delegating to uhdr2tiff.ps1)"
+  & $uhdrToTiff -InputPath $uhdrJpeg -OutputPath $outputFull -Transfer $Transfer -BitDepth $BitDepth
+  if ($LASTEXITCODE -ne 0) { throw "uhdr2tiff.ps1 failed with exit code $LASTEXITCODE." }
 
-  $tf = if ($Transfer -eq 'hlg') { 1 } else { 2 }
-  $uhdrArgs = @(
-    '-m','1',
-    '-j',$uhdrJpeg,
-    '-o',$tf,
-    '-O','5',
-    '-z',$rawPath
+  # stage 4: 用原始 HEIC 的 EXIF 覆盖（uhdr2tiff.ps1 已写入中间 JPEG 的 EXIF，此处以源文件覆盖）
+  # --ICC_Profile: 排除 ICC Profile — 输出 TIFF 像素已由 uhdr2tiff.ps1 转换为 BT.2020，
+  #               不应被 HEIC 的 P3 ICC 覆盖
+  Write-Host "> stage4: overwrite EXIF/XMP from original HEIC (excluding ICC_Profile)"
+  Invoke-External -File 'exiftool' -Args @(
+      '-TagsFromFile', $resolvedInput.Path,
+      '-exif:all',
+      '-xmp:all',
+      '--ICC_Profile',
+      '-overwrite_original',
+      $outputFull
   )
-  Write-Host "> stage2: decode UltraHDR -> raw"
-  Invoke-External -File 'ultrahdr_app.exe' -Args $uhdrArgs
-
-  $expected = [int64]$w * [int64]$h * 4
-  if (-not (Test-Path $rawPath)) { throw "Decoder did not create raw output '$rawPath'." }
-  $actual = (Get-Item $rawPath).Length
-  if ($actual -ne $expected) {
-    Write-Warning "Raw file size mismatch: $actual vs $expected (expected $w x $h x 4)."
-  }
-
-  $pixIn = 'x2bgr10le'
-  $pixOut = if ($BitDepth -eq 16) { 'rgb48le' } else { 'rgb24' }
-  $colorTrc = if ($Transfer -eq 'hlg') { 'arib-std-b67' } else { 'smpte2084' }
-
-  $ffArgs = @(
-    '-hide_banner',
-    '-f','rawvideo',
-    '-pix_fmt',$pixIn,
-    '-s',"${w}x${h}",
-    '-i',$rawPath,
-    '-frames:v','1',
-    '-pix_fmt',$pixOut,
-    '-color_trc',$colorTrc,
-    '-y',$outputFull
-  )
-  Write-Host "> stage3: raw -> tiff"
-  Invoke-External -File 'ffmpeg' -Args $ffArgs
 
   Write-Host "Completed: $outputFull"
-
-  # Copy EXIF from input HEIC to output TIFF
-  Write-Host "> copying EXIF metadata"
-  Invoke-External -File 'exiftool' -Args @('-TagsFromFile', $resolvedInput.Path, '-all:all', '-overwrite_original', $outputFull)
 }
 finally {
   if (Test-Path $tempDir) {

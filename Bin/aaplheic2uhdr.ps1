@@ -114,6 +114,24 @@ try {
   Write-Host "> converting gain map TIFF -> JPEG"
   Invoke-External -File 'ffmpeg' -Args @('-hide_banner','-y','-i',$gainmapTif,'-q:v','1','-pix_fmt','gray',$gainmapJpeg)
 
+  # 读取源 HEIC 的 ICC Profile 描述，确定向 ultrahdr_app 传递的 SDR 色域参数 (-c)
+  # 使用源 HEIC 是因为 heif-dec 的部分输出 TIFF 会使得 exiftool 难以正确解析 ICC 字符串标识
+  # 使目标 UltraHDR JPEG 的 XMP 色域字段与嵌入的 ICC Profile 保持一致
+  $exifBase = & exiftool -j '-ICC_Profile:ProfileDescription' $resolvedInput.Path 2>$null | ConvertFrom-Json
+  $baseIccDesc = if ($exifBase -and $exifBase.Count -gt 0) { $exifBase[0].ProfileDescription } else { $null }
+  Write-Host "Source HEIC ICC ProfileDescription: $(if ($baseIccDesc) { $baseIccDesc } else { '(none – fallback BT.709)' })"
+  # P3-D65 (Display P3) 与 P3-DCI 区分；苹果图片总是 P3-D65
+  if ($baseIccDesc -match 'Display P3' -or $baseIccDesc -match 'P3 D65') {
+    $sdrCgArg = '1'   # UHDR_CG_DISPLAY_P3 (P3‑D65)
+  } elseif ($baseIccDesc -match 'DCI.P3') {
+    $sdrCgArg = '1'   # 罕见的 P3‑DCI 也当做 P3 处理，但仍使用同一个编码值
+  } elseif ($baseIccDesc -match 'BT\.?2020' -or $baseIccDesc -match 'Rec\.?\s*2020') {
+    $sdrCgArg = '2'   # UHDR_CG_BT_2100
+  } else {
+    $sdrCgArg = '0'   # UHDR_CG_BT_709 (sRGB fallback)
+  }
+  Write-Host "Passing -c $sdrCgArg to ultrahdr_app SDR gamut."
+
   Write-Host "> encoding UltraHDR JPEG"
   $ultraArgs = @(
     '-m','0',
@@ -122,24 +140,31 @@ try {
     '-f',$metadataCfg,
     '-q','100',
     '-Q','100',
+    '-c',$sdrCgArg,
     '-z',$outputFull
   )
   Invoke-External -File 'ultrahdr_app.exe' -Args $ultraArgs
   Write-Host "Success: $outputFull"
 
-  # Copy EXIF from input HEIC to output JPEG
-  Write-Host "> copying EXIF metadata"
-  Invoke-External -File 'exiftool' -Args @('-TagsFromFile', $resolvedInput.Path, '-all:all', '-overwrite_original', $outputFull)
+  # Copy full EXIF metadata from the HEIC into the UltraHDR JPEG.  
+  # Exiftool's "-all:all" already includes the ICC_Profile tag, so the
+  # separate explicit copy previously here was redundant and has been
+  # removed.  The important part is that the original P3 ICC travels
+  # along with the JPEG so legacy SDR viewers render correctly.
+  Write-Host "> copying EXIF/XMP metadata and ICC_Profile"
+  # Only copy the standard EXIF and XMP groups plus ICC profile.  Apple devices
+  # can be sensitive to extraneous maker notes or proprietary tags, so we avoid
+  # pulling over unrelated fields.
+  Invoke-External -File 'exiftool' -Args @(
+      '-TagsFromFile', $resolvedInput.Path,
+      '-exif:all',
+      '-xmp:all',
+      '-icc_profile',
+      '-overwrite_original',
+      $outputFull
+  )
 
-  # Explicitly copy ICC_Profile (profile 0) from source HEIC to the output JPEG.
-  # Many HEICs may contain multiple ICC_Profile tags; we assume the primary 'ICC_Profile' is the desired Display P3 profile.
-  Write-Host "> explicitly copying ICC_Profile (profile 0)"
-  try {
-    Invoke-External -File 'exiftool' -Args @('-TagsFromFile', $resolvedInput.Path, '-ICC_Profile', '-overwrite_original', $outputFull)
-    Write-Host "ICC_Profile copied successfully."
-  } catch {
-    Write-Warning "Failed to copy ICC_Profile: $_"
-  }
+
 }
 finally {
   if (Test-Path $tempDir) {

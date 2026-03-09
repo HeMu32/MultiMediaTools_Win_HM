@@ -19,7 +19,7 @@
   输出 TIFF 路径（.tiff 或 .tif）。
 
 .PARAMETER Transfer
-  输出传输函数：'pq' 或 'hlg'（默认 'pq'）。
+  输出传输函数：'hlg' 或 'pq'（默认 'hlg'）。
 
 .PARAMETER BitDepth
   输出 TIFF 位深：8 或 16（默认 16）。
@@ -28,8 +28,8 @@
   需在 PATH 中可找到：ultrahdr_app.exe、ffprobe、ffmpeg。
 
 .EXAMPLE
-  # 转换为 PQ 16bit TIFF
-  pwsh .\uhdr2tiff.ps1 -InputPath .\hdr.jpg -OutputPath .\out_pq_16b.tiff -Transfer pq -BitDepth 16
+  # 转换为 HLG 16bit TIFF（BT.2020）
+  pwsh .\uhdr2tiff.ps1 -InputPath .\hdr.jpg -OutputPath .\out_hlg_16b.tiff -Transfer hlg -BitDepth 16
 
 .EXAMPLE
   # 转换为 HLG 8bit TIFF
@@ -48,7 +48,7 @@ param(
 
   [Parameter(Position = 2)]
   [ValidateSet('pq','hlg')]
-  [string]$Transfer = 'pq',
+  [string]$Transfer = 'hlg',
 
   [Parameter(Position = 3)]
   [ValidateSet(8,16)]
@@ -66,20 +66,13 @@ function Test-Tool {
 
 function Get-ImageSize {
   param([Parameter(Mandatory=$true)][string]$Path)
-  $ffprobeArgs = @(
-    '-hide_banner',
-    '-v','error',
-    '-select_streams','v:0',
-    '-show_entries','stream=width,height',
-    '-of','csv=s=,:p=0',
-    $Path
-  )
-  $out = & ffprobe @ffprobeArgs 2>$null | Select-Object -First 1
-  if (-not $out) { throw "Unable to parse resolution from '$Path' (ffprobe no output)." }
-  $parts = $out -split ','
-  if ($parts.Count -lt 2) { throw "Unable to parse resolution from '$Path' (unexpected output: $out)" }
-  $width  = [int]$parts[0]
-  $height = [int]$parts[1]
+  # 使用 exiftool JSON 输出；ImageWidth/Height 来自文件实际像素而非 EXIF 字段
+  $exifJson = & exiftool -j -ImageWidth -ImageHeight $Path 2>$null | ConvertFrom-Json
+  if (-not $exifJson -or $exifJson.Count -eq 0) {
+    throw "exiftool returned no data for '$Path'."
+  }
+  $width  = $exifJson[0].ImageWidth  -as [int]
+  $height = $exifJson[0].ImageHeight -as [int]
   if ($width -le 0 -or $height -le 0) { throw "Parsed width/height invalid: $width x $height" }
   [pscustomobject]@{ Width = $width; Height = $height }
 }
@@ -98,7 +91,6 @@ function Invoke-External {
 try {
   # 1) 工具自检
   Test-Tool -Name 'ultrahdr_app.exe'
-  Test-Tool -Name 'ffprobe'
   Test-Tool -Name 'ffmpeg'
   Test-Tool -Name 'exiftool'
 
@@ -107,6 +99,31 @@ try {
   $w = $sz.Width
   $h = $sz.Height
   Write-Host "Detected resolution: $w x $h"
+
+  # 2a) 通过 exiftool 读取 SDR 底图嵌入的 ICC Profile 描述，判断源色彩原色
+  #      ultrahdr_app 解码时不改变色域（cg 字段传透自编码时的 -C 值），
+  #      ICC Profile 描述是目前最可靠的来源；未检测到时 fallback 到 sRGB/BT.709
+  function Get-SdrColorPrimaries {
+    param([string]$Path)
+    $exifJson = & exiftool -j '-ICC_Profile:ProfileDescription' $Path 2>$null | ConvertFrom-Json
+    $desc = if ($exifJson -and $exifJson.Count -gt 0) { $exifJson[0].ProfileDescription } else { $null }
+    Write-Host "Detected ICC ProfileDescription: $(if ($desc) { $desc } else { '(none – fallback to sRGB/BT.709)' })"
+    # 注意区分两种 P3：Display P3 (也称 P3‑D65，苹果和大多数现代设备使用) 与 DCI-P3 (P3‑DCI，用于数字影院)
+    if ($desc -match 'Display P3' -or $desc -match 'P3 D65') {
+      # P3‑D65 -> smpte432
+      return @{ FfmpegIn = 'smpte432'; ZscaleIn = 'smpte432'; NeedConvert = $true  }
+    } elseif ($desc -match 'DCI.P3') {
+      # P3‑DCI -> smpte431
+      return @{ FfmpegIn = 'smpte431'; ZscaleIn = 'smpte431'; NeedConvert = $true  }
+    } elseif ($desc -match 'BT\.?2020' -or $desc -match 'BT\.?2100' -or $desc -match 'Rec\.?\s*2020') {
+      return @{ FfmpegIn = 'bt2020';   ZscaleIn = '2020'; NeedConvert = $false }
+    } else {
+      # fallback: sRGB / BT.709
+      return @{ FfmpegIn = 'bt709';    ZscaleIn = '709';  NeedConvert = $true  }
+    }
+  }
+  $srcColor = Get-SdrColorPrimaries -Path $InputPath
+  Write-Host "Mapped source primaries: ffmpeg='$($srcColor.FfmpegIn)', zscale='$($srcColor.ZscaleIn)'"
 
   # 3) 生成临时 raw 路径
   $tmpName = "uhdr_" + [IO.Path]::GetFileNameWithoutExtension($OutputPath) + "_" + ([Guid]::NewGuid().ToString('N')) + ".raw"
@@ -140,14 +157,33 @@ try {
   # 可选：为输出加上传输函数元数据标签（某些查看器可能忽略）
   $colorTrc = if ($Transfer -eq 'hlg') { 'arib-std-b67' } else { 'smpte2084' }
 
+  # Route B: 若源色域不是 BT.2020，用 zscale 做像素级色域转换；
+  #           需同时在 zscale 中声明 pin/tin，以便滤镜使用正确的变换矩阵
+  $vfFilter = ''
+  if ($srcColor.NeedConvert) {
+    Write-Host "Source primaries '$($srcColor.FfmpegIn)': applying zscale primaries conversion to BT.2020."
+    # pin/p  = 输入/输出原色；tin/t = 传输函数（告知 zscale 如何线性化再映射）
+    $vfFilter = "zscale=pin=$($srcColor.ZscaleIn):p=bt2020:tin=arib-std-b67:t=arib-std-b67:m=bt2020nc"
+  } else {
+    Write-Host "Source primaries already BT.2020; no zscale needed."
+  }
+
+  # 在 rawvideo 输入端声明源原色与传输函数，确保 ffmpeg 内部管线元数据一致
   $ffArgs = @(
     '-hide_banner',
-    '-f','rawvideo',
+    '-f', 'rawvideo',
     '-pix_fmt', $pixIn,
     '-s', "${w}x${h}",
-    '-i', $tmpRaw,
-    '-frames:v','1',
+    '-color_primaries', $srcColor.FfmpegIn,
+    '-color_trc', $colorTrc,
+    '-i', $tmpRaw
+  )
+  if ($vfFilter) { $ffArgs += @('-vf', $vfFilter) }
+  $ffArgs += @(
+    '-frames:v', '1',
     '-pix_fmt', $pixOut,
+    '-color_primaries', 'bt2020',
+    '-colorspace', 'bt2020nc',
     '-color_trc', $colorTrc,
     '-y', $OutputPath
   )
@@ -157,11 +193,21 @@ try {
   Write-Host "Completed: $OutputPath"
 
   # Copy EXIF from input JPEG to output TIFF
-  Write-Host "> copying EXIF metadata"
-  Invoke-External -File 'exiftool' -Args @('-TagsFromFile', $InputPath, '-all:all', '-overwrite_original', $OutputPath)
+  # --ICC_Profile: 排除 ICC Profile — 输出 TIFF 像素已转换为 BT.2020，源 ICC（如 P3）不再适用
+  Write-Host "> copying EXIF/XMP metadata to TIFF (excluding ICC_Profile)"
+  # Only transfer the EXIF and XMP groups, since the TIFF already has its own
+  # BT.2020 color tags; any other metadata (MakerNotes, etc.) is unnecessary.
+  Invoke-External -File 'exiftool' -Args @(
+      '-TagsFromFile', $InputPath,
+      '-exif:all',
+      '-xmp:all',
+      '--ICC_Profile',
+      '-overwrite_original',
+      $OutputPath
+  )
 }
 finally {
-  if (Test-Path $tmpRaw) {
-    try { Remove-Item $tmpRaw -ErrorAction SilentlyContinue } catch {}
+  if ($tmpRaw -and (Test-Path $tmpRaw)) {
+    try { Remove-Item $tmpRaw -Force -ErrorAction SilentlyContinue } catch {}
   }
 }

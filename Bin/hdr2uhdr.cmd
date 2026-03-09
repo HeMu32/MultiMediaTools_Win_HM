@@ -1,6 +1,12 @@
 @echo off
 setlocal
 
+:: hdr2uhdr.cmd - Wrapper to call hdr2uhdr.ps1 from cmd.exe
+:: Converts an HDR image file (HEIC/HIF/etc.) to an UltraHDR JPEG.
+:: The PowerShell script now normalizes paths, auto-creates output
+:: directories, and uses exiftool's JSON output for metadata lookup.
+
+
 if /i "%~1" == "/h" goto :help
 if /i "%~1" == "/help" goto :help
 if "%~1" == "/?" goto :help
@@ -34,6 +40,7 @@ goto :eof
 :help
 echo.
 echo Converts an HDR image file (e.g., HEIC, AVIF) to an UltraHDR JPEG.
+echo (output directory will be created automatically)
 echo.
 echo Usage:
 echo   %~n0 ^<input_file^> ^<output_jpeg^>

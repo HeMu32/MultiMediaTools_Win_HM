@@ -1,11 +1,16 @@
 @echo off
 setlocal enabledelayedexpansion
 
+:: uhdr2tiff.cmd - Wrapper for uhdr2tiff.ps1
+:: Decodes an UltraHDR JPEG to a BT.2020 TIFF using ultrahdr_app + ffmpeg.
+:: Underlying PS1 handles output directory creation, color-space detection,
+:: and metadata transfer (EXIF/XMP only).
+
 :: uhdr2tiff.cmd - Call PowerShell script uhdr2tiff.ps1 from cmd.exe
 :: Usage:
 ::   uhdr2tiff.cmd <InputPath> <OutputPath> [pq|hlg] [8|16]
 :: Example:
-::   uhdr2tiff.cmd 7078a2ba2a64976.jpg out_pq_16b.tiff pq 16
+::   uhdr2tiff.cmd 7078a2ba2a64976.jpg out_hlg_16b.tiff hlg 16
 
 if "%~1"=="" goto :help
 if /I "%~1"=="/?" goto :help
@@ -35,8 +40,8 @@ if not exist "%PS1%" (
   exit /b 2
 )
 
-:: Default values: Transfer defaults to pq, BitDepth to 16
-if "%TRANSFER%"=="" set "TRANSFER=pq"
+:: Default values: Transfer defaults to hlg, BitDepth to 16
+if "%TRANSFER%"=="" set "TRANSFER=hlg"
 if "%BITDEPTH%"=="" set "BITDEPTH=16"
 
 :: Call PowerShell script, bypass execution policy, pass parameters
@@ -57,9 +62,9 @@ echo   %~nx0 ^<InputPath^> ^<OutputPath^> [pq^|hlg] [8^|16]
 echo Parameters:
 echo   InputPath   UltraHDR compatible input file (.jpg)
 echo   OutputPath  Output TIFF file path
-echo   pq^|hlg     Target transfer function (default pq)
+echo   hlg^|pq     Target transfer function (default hlg)
 echo   8^|16       TIFF bit depth (default 16)
 echo.
 echo Example:
-echo   %~nx0 7078a2ba2a64976.jpg out_pq_16b.tiff pq 16
+echo   %~nx0 7078a2ba2a64976.jpg out_hlg_16b.tiff hlg 16
 exit /b 1
