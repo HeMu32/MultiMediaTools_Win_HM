@@ -109,10 +109,10 @@ try {
   $gainmapJpeg = Join-Path $tempDir 'gainmap.jpg'
 
   Write-Host "> converting base TIFF -> JPEG"
-  Invoke-External -File 'ffmpeg' -Args @('-hide_banner','-y','-i',$baseTif,'-q:v','1','-pix_fmt','yuv444p',$baseJpeg)
+  Invoke-External -File 'ffmpeg' -Args @('-hide_banner','-y','-i',$baseTif,'-q:v','1','-pix_fmt','yuv420p',$baseJpeg)
 
   Write-Host "> converting gain map TIFF -> JPEG"
-  Invoke-External -File 'ffmpeg' -Args @('-hide_banner','-y','-i',$gainmapTif,'-q:v','1','-pix_fmt','gray',$gainmapJpeg)
+  Invoke-External -File 'ffmpeg' -Args @('-hide_banner','-y','-i',$gainmapTif,'-q:v','1','-pix_fmt','yuv420p',$gainmapJpeg)
 
   # 读取源 HEIC 的 ICC Profile 描述，确定向 ultrahdr_app 传递的 SDR 色域参数 (-c)
   # 使用源 HEIC 是因为 heif-dec 的部分输出 TIFF 会使得 exiftool 难以正确解析 ICC 字符串标识
