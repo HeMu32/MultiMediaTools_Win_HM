@@ -18,6 +18,10 @@
 .PARAMETER OutputPath
   Path for the output UltraHDR JPEG file (.jpg).
 
+.PARAMETER s
+  Optional gainmap downsample factor. Integer [1-128], same meaning as ultrahdr_app -s.
+  Default is 2 (half-size gainmap).
+
 .REQUIREMENTS
   Requires exiftool, ffmpeg, and ultrahdr_app.exe to be available in the system's PATH.
 
@@ -34,7 +38,12 @@ param(
 
   [Parameter(Mandatory = $true, Position = 1)]
   [ValidateNotNullOrEmpty()]
-  [string]$OutputPath
+  [string]$OutputPath,
+
+  [Parameter(Mandatory = $false)]
+  [Alias('s')]
+  [ValidateRange(1, 128)]
+  [int]$GainmapScaleDown = 2
 )
 
 $ErrorActionPreference = 'Stop'
@@ -182,27 +191,35 @@ try {
   $hdrGamutFlag = $hdrInfo.HdrGamutFlag
   $hasColorInfo = $hdrInfo.HasColorInfo
   Write-Host "Detected properties: ${w}x${h}, Format: $hdrFormat, Gamut: $hdrGamut (hasColorInfo: $hasColorInfo)"
+  Write-Host "Gainmap downsample factor (-s): $GainmapScaleDown"
 
   # 3) 如果帧大小大于8192px, 计算缩放尺寸
   $scaleArgs = @()
   $maxDim = 8192
-  if ($w -gt $maxDim -or $h -gt $maxDim) {
-    Write-Host "Image dimensions ($w x $h) exceed $maxDim px, scaling down."
-    if ($w -ge $h) {
+  $targetW = $w
+  $targetH = $h
+  if ($targetW -gt $maxDim -or $targetH -gt $maxDim) {
+    Write-Host "Image dimensions ($targetW x $targetH) exceed $maxDim px, scaling down."
+    if ($targetW -ge $targetH) {
       $newW = $maxDim
-      $newH = [int]([Math]::Round($h / ($w / $newW)))
+      $newH = [int]([Math]::Round($targetH / ($targetW / $newW)))
       # 确保为偶数
       if ($newH % 2 -ne 0) { $newH++ }
     }
     else {
       $newH = $maxDim
-      $newW = [int]([Math]::Round($w / ($h / $newH)))
+      $newW = [int]([Math]::Round($targetW / ($targetH / $newH)))
       if ($newW % 2 -ne 0) { $newW++ }
     }
-    $w = $newW
-    $h = $newH
+    $targetW = $newW
+    $targetH = $newH
+  }
+
+  if ($targetW -ne $w -or $targetH -ne $h) {
+    $w = $targetW
+    $h = $targetH
     $scaleArgs = @('-s', "${w}x${h}")
-    Write-Host "New dimensions: ${w}x${h}"
+    Write-Host "Output dimensions: ${w}x${h}"
   }
 
   # 4) 用ffmpeg转换输入文件为临时文件
@@ -232,6 +249,7 @@ try {
     # 指定 HDR intent 色域 (-C): 0=bt709, 1=p3, 2=bt2100
     '-C', $hdrGamutFlag,
     '-a', '5', # rgba1010102 for x2bgr10le
+    '-s', $GainmapScaleDown,
     '-z', $outputFull
   )
   Invoke-External -File 'ultrahdr_app.exe' -Args $uhdrArgs

@@ -13,7 +13,11 @@
   Apple HDR HEIC 输入路径。
 
 .PARAMETER OutputJpeg
-  UltraHDR JPEG 输出路径。
+  Output UltraHDR JPEG path.
+
+.PARAMETER yuv444
+  Optional switch. When set, encode intermediate JPEGs as 4:4:4.
+  Default behavior is 4:2:0.
 
 .REQUIREMENTS
   需在 PATH 中可找到：heif-dec.exe、ffmpeg、ultrahdr_app.exe。
@@ -28,7 +32,11 @@ param(
 
   [Parameter(Mandatory = $true, Position = 1)]
   [ValidateNotNullOrEmpty()]
-  [string]$OutputJpeg
+  [string]$OutputJpeg,
+
+  [Parameter(Mandatory = $false)]
+  [Alias('yuv444')]
+  [switch]$UseYuv444
 )
 
 $ErrorActionPreference = 'Stop'
@@ -107,12 +115,14 @@ try {
 
   $baseJpeg = Join-Path $tempDir 'base.jpg'
   $gainmapJpeg = Join-Path $tempDir 'gainmap.jpg'
+  $jpegPixFmt = if ($UseYuv444) { 'yuv444p' } else { 'yuv420p' }
+  Write-Host "Intermediate JPEG format: $(if ($UseYuv444) { '4:4:4' } else { '4:2:0' })"
 
   Write-Host "> converting base TIFF -> JPEG"
-  Invoke-External -File 'ffmpeg' -Args @('-hide_banner','-y','-i',$baseTif,'-q:v','1','-pix_fmt','yuv420p',$baseJpeg)
+  Invoke-External -File 'ffmpeg' -Args @('-hide_banner','-y','-i',$baseTif,'-q:v','1','-pix_fmt',$jpegPixFmt,$baseJpeg)
 
   Write-Host "> converting gain map TIFF -> JPEG"
-  Invoke-External -File 'ffmpeg' -Args @('-hide_banner','-y','-i',$gainmapTif,'-q:v','1','-pix_fmt','yuv420p',$gainmapJpeg)
+  Invoke-External -File 'ffmpeg' -Args @('-hide_banner','-y','-i',$gainmapTif,'-q:v','1','-pix_fmt',$jpegPixFmt,$gainmapJpeg)
 
   # 读取源 HEIC 的 ICC Profile 描述，确定向 ultrahdr_app 传递的 SDR 色域参数 (-c)
   # 使用源 HEIC 是因为 heif-dec 的部分输出 TIFF 会使得 exiftool 难以正确解析 ICC 字符串标识

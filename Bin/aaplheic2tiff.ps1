@@ -89,7 +89,7 @@ $uhdrJpeg = Join-Path $tempDir 'intermediate_uhdr.jpg'
 try {
   # stage 1: HEIC -> UltraHDR JPEG
   Write-Host "> stage1: heic -> ultrahdr jpeg"
-  & $heicToUhdr -InputHeic $resolvedInput.Path -OutputJpeg $uhdrJpeg
+  & $heicToUhdr -InputHeic $resolvedInput.Path -OutputJpeg $uhdrJpeg -yuv444
   if (-not (Test-Path $uhdrJpeg)) {
     throw "Failed to generate UltraHDR JPEG at '$uhdrJpeg'."
   }
