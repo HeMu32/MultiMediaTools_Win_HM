@@ -25,7 +25,7 @@ set "INPUT_FILE=%~1"
 set "OUTPUT_FILE=%~2"
 
 echo Calling PowerShell script to convert %INPUT_FILE% to %OUTPUT_FILE%...
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_PATH%" "%INPUT_FILE%" "%OUTPUT_FILE%"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File "%SCRIPT_PATH%" %*
 
 if %ERRORLEVEL% neq 0 (
     echo.
@@ -43,11 +43,12 @@ echo Converts an HDR image file (e.g., HEIC, AVIF) to an UltraHDR JPEG.
 echo (output directory will be created automatically)
 echo.
 echo Usage:
-echo   %~n0 ^<input_file^> ^<output_jpeg^>
+echo   %~n0 ^<input_file^> ^<output_jpeg^> [-s ^<1-128^>]
 echo.
 echo Parameters:
 echo   input_file     Path to the source HDR image file.
 echo   output_jpeg    Path for the destination UltraHDR JPEG file.
+echo   -s N           Gainmap downsample factor [1-128], default 2.
 echo.
 echo Example:
 echo   %~n0 my_photo.heic my_photo.jpg

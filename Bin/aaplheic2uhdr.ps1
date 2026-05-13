@@ -13,7 +13,11 @@
   Apple HDR HEIC 输入路径。
 
 .PARAMETER OutputJpeg
-  UltraHDR JPEG 输出路径。
+  Output UltraHDR JPEG path.
+
+.PARAMETER yuv444
+  Optional switch. When set, encode intermediate JPEGs as 4:4:4.
+  Default behavior is 4:2:0.
 
 .REQUIREMENTS
   需在 PATH 中可找到：heif-dec.exe、ffmpeg、ultrahdr_app.exe。
@@ -28,7 +32,11 @@ param(
 
   [Parameter(Mandatory = $true, Position = 1)]
   [ValidateNotNullOrEmpty()]
-  [string]$OutputJpeg
+  [string]$OutputJpeg,
+
+  [Parameter(Mandatory = $false)]
+  [Alias('yuv444')]
+  [switch]$UseYuv444
 )
 
 $ErrorActionPreference = 'Stop'
@@ -107,12 +115,14 @@ try {
 
   $baseJpeg = Join-Path $tempDir 'base.jpg'
   $gainmapJpeg = Join-Path $tempDir 'gainmap.jpg'
+  $jpegPixFmt = if ($UseYuv444) { 'yuv444p' } else { 'yuv420p' }
+  Write-Host "Intermediate JPEG format: $(if ($UseYuv444) { '4:4:4' } else { '4:2:0' })"
 
   Write-Host "> converting base TIFF -> JPEG"
-  Invoke-External -File 'ffmpeg' -Args @('-hide_banner','-y','-i',$baseTif,'-q:v','1','-pix_fmt','yuv444p',$baseJpeg)
+  Invoke-External -File 'ffmpeg' -Args @('-hide_banner','-y','-i',$baseTif,'-q:v','1','-pix_fmt',$jpegPixFmt,$baseJpeg)
 
   Write-Host "> converting gain map TIFF -> JPEG"
-  Invoke-External -File 'ffmpeg' -Args @('-hide_banner','-y','-i',$gainmapTif,'-q:v','1','-pix_fmt','gray',$gainmapJpeg)
+  Invoke-External -File 'ffmpeg' -Args @('-hide_banner','-y','-i',$gainmapTif,'-q:v','1','-pix_fmt',$jpegPixFmt,$gainmapJpeg)
 
   # 读取源 HEIC 的 ICC Profile 描述，确定向 ultrahdr_app 传递的 SDR 色域参数 (-c)
   # 使用源 HEIC 是因为 heif-dec 的部分输出 TIFF 会使得 exiftool 难以正确解析 ICC 字符串标识
@@ -155,15 +165,91 @@ try {
   # Only copy the standard EXIF and XMP groups plus ICC profile.  Apple devices
   # can be sensitive to extraneous maker notes or proprietary tags, so we avoid
   # pulling over unrelated fields.
-  Invoke-External -File 'exiftool' -Args @(
-      '-TagsFromFile', $resolvedInput.Path,
-      '-exif:all',
-      '-xmp:all',
-      '-icc_profile',
-      '-overwrite_original',
-      $outputFull
-  )
+    # Copy EXIF (all) and a curated set of common XMP groups to avoid
+    # bringing Apple-private XMP namespaces (e.g. XMP-HDRGainMap / XMP-apdi).
+    # Whitelist copy: select common EXIF, GPS, IPTC and safe XMP groups so
+    # we preserve useful photographic metadata (exposure, ISO, focal length,
+    # lens, creation dates, GPS, IPTC captions/keywords, XMP-dc/xmpMM provenance)
+    # while avoiding Apple-private XMP namespaces (e.g. XMP-apdi / XMP-HDRGainMap).
+    Invoke-External -File 'exiftool' -Args @(
+        '-TagsFromFile', $resolvedInput.Path,
+        # Core timestamps & camera identification
+        '-EXIF:DateTimeOriginal',
+        '-EXIF:CreateDate',
+        '-EXIF:ModifyDate',
+        '-EXIF:SubSecTimeOriginal',
+        '-EXIF:SubSecTimeDigitized',
+        '-EXIF:Make',
+        '-EXIF:Model',
+        '-EXIF:Orientation',
+        # Exposure / capture parameters (comprehensive set)
+        '-EXIF:ExposureTime',
+        '-EXIF:FNumber',
+        '-EXIF:ExposureProgram',
+        '-EXIF:ExposureCompensation',
+        '-EXIF:ExposureBiasValue',
+        '-EXIF:ShutterSpeedValue',
+        '-EXIF:ApertureValue',
+        '-EXIF:MaxApertureValue',
+        '-EXIF:ISOSpeedRatings',
+        '-EXIF:PhotographicSensitivity',
+        '-EXIF:ExposureIndex',
+        '-EXIF:MeteringMode',
+        '-EXIF:Flash',
+        '-EXIF:WhiteBalance',
+        '-EXIF:ExposureMode',
+        '-EXIF:CustomRendered',
+        '-EXIF:GainControl',
+        '-EXIF:Contrast',
+        '-EXIF:Saturation',
+        '-EXIF:Sharpness',
+        # Focal length / lens (including 35mm equiv and lens details)
+        '-EXIF:FocalLength',
+        '-EXIF:FocalLengthIn35mmFormat',
+        '-EXIF:LensModel',
+        '-EXIF:LensMake',
+        '-EXIF:LensInfo',
+        '-EXIF:LensSpecification',
+        '-EXIF:SubjectArea',
+        '-EXIF:SceneType',
+        '-EXIF:ColorSpace',
+        # GPS, IPTC (preserve common location and editorial metadata)
+        '-GPS:All',
+        '-IPTC:All',
+        # XMP groups: keep common, non-proprietary groups (dc, xmpMM, photoshop, exif)
+        '-XMP-dc:All',
+        '-XMP-xmpMM:All',
+        '-XMP-photoshop:All',
+        '-XMP-iptcCore:All',
+        '-XMP-exif:All',
+        '-XMP-xmp:All',
+        '-XMP-aux:All',
+        # Preserve ICC profile if present (remove this entry if you don't want ICC copied)
+        '-ICC_Profile:All',
+        # finalize
+        '-overwrite_original',
+        $outputFull
+    )
 
+
+  # append Google-style hdrgm/GContainer XMP metadata (padding=0)
+  Write-Host "> appending Google hdrgm/GContainer XMP metadata"
+  $mpLen = (& exiftool -s -s -s -MPImage2:MPImageLength $outputFull)
+  if ($mpLen) {
+      Invoke-External -File 'exiftool' -Args @(
+          '-overwrite_original',
+          '-XMP-hdrgm:Version=1.0',
+          '-XMP-GContainer:DirectoryItemMime+=image/jpeg',
+          '-XMP-GContainer:DirectoryItemSemantic+=Primary',
+          '-XMP-GContainer:DirectoryItemSemantic+=GainMap',
+          '-XMP-GContainer:DirectoryItemLength+=0',
+          "-XMP-GContainer:DirectoryItemLength+=$mpLen",
+          '-XMP-GContainer:DirectoryItemPadding+=0',
+          $outputFull
+      )
+  } else {
+      Write-Warning "MPImage2 length not found; skipping Google XMP."
+  }
 
 }
 finally {

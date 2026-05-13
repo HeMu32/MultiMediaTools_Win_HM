@@ -33,8 +33,8 @@ if not exist "%PS1%" (
   exit /b 2
 )
 
-:: Call PowerShell script, bypass execution policy, pass parameters
-"%PSH%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%PS1%" -InputHeic "%INPUT%" -OutputJpeg "%OUTPUT%"
+:: Call PowerShell script, bypass execution policy, pass through all args
+"%PSH%" -NoLogo -NoProfile -ExecutionPolicy Bypass -File "%PS1%" %*
 set "ERR=%ERRORLEVEL%"
 if not "%ERR%"=="0" (
   echo [ERROR] Conversion failed with exit code %ERR%.
@@ -47,10 +47,11 @@ exit /b 0
 :help
 echo.
 echo Usage:
-echo   %~nx0 ^<InputHeic^> ^<OutputJpeg^>
+echo   %~nx0 ^<InputHeic^> ^<OutputJpeg^> [-yuv444]
 echo Parameters:
 echo   InputHeic    Apple HDR HEIC input file (.heic)
 echo   OutputJpeg   UltraHDR JPEG output file (.jpg)
+echo   -yuv444      Optional switch, use 4:4:4 output (default is 4:2:0).
 echo.
 echo Example:
 echo   %~nx0 IMG_5763.HEIC output_hdr.jpg
